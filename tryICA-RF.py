@@ -161,24 +161,39 @@ Y = df.iloc[:,-1].values
 from sklearn.model_selection import train_test_split
 X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size = 0.2, random_state = 0)
 
-'''
-from sklearn.preprocessing import StandardScaler
-sc = StandardScaler()
+
+from sklearn.preprocessing import MinMaxScaler
+sc = MinMaxScaler()
 y_train = sc.fit_transform(y_train.reshape(-1,1))
 y_test = y_test.reshape(-1,1)
 y_test = sc.transform(y_test)
-'''
 
-'''
+from sklearn.preprocessing import StandardScaler
+sc = StandardScaler()
+X_train = sc.fit_transform(X_train)
+X_test = sc.transform(X_test)
+
 import tensorflow as tf
-ann = tf.keras.models.Sequential()
-ann.add(tf.keras.layers.Dense(units=7, activation='relu',input_dim = M.shape[1]))
-ann.add(tf.keras.layers.Dense(units=7, activation='relu'))
-ann.add(tf.keras.layers.Dense(units=1, activation='relu'))
 
-ann.compile(optimizer = 'rmsprop', loss = 'mse', metrics = ['accuracy'])
-ann.fit(X_train, y_train, batch_size = 128, epochs = 100)
+def model(neurons = 100, dropOutRate = 0.2):
+    
+    ann = tf.keras.models.Sequential()
+    ann.add(tf.keras.layers.Dense(units=neurons, activation='relu',input_dim = M.shape[1]))
+    ann.add(tf.keras.layers.Dropout(dropOutRate))
+    ann.add(tf.keras.layers.Dense(units=int(neurons/2), activation='relu'))
+    ann.add(tf.keras.layers.Dropout(dropOutRate))
+    ann.add(tf.keras.layers.Dense(units=int(neurons/4), activation='relu'))
+    ann.add(tf.keras.layers.Dropout(dropOutRate))
+    ann.add(tf.keras.layers.Dense(units=1, activation='linear'))
+
+    ann.compile(optimizer = 'adam', loss = 'mse', metrics = ['accuracy'])
+    return ann
+ann = model()
+
+
+ann.fit(X_train, y_train, batch_size = 32, epochs = 1000,verbose = 0)
 y_pred = ann.predict(X_test)
+
 '''
 #declare the regressor
 regressor = RandomForestRegressor(n_estimators = 500, 
@@ -187,13 +202,13 @@ regressor = RandomForestRegressor(n_estimators = 500,
                                       min_samples_leaf = 1,
                                       max_features = 'log2',
                                       random_state = 0)
-
+'''
 #regressor = DecisionTreeRegressor(random_state = 0)
 #regressor = LinearRegression()
-regressor.fit(X_train, y_train)
+#regressor.fit(X_train, y_train)
 
 
-y_pred = regressor.predict(X_test)
+#y_pred = regressor.predict(X_test)
 
 r2 = r2_score(y_test,y_pred)
 print(r2)
@@ -204,10 +219,11 @@ plt.xlabel('actual value')
 plt.ylabel('predicted value')
 plt.title('For '+target+ ' with #IC - ' + str(n_IC))
 
+'''
 #apply cross validation
 from sklearn.model_selection import cross_val_score
 scores = cross_val_score(regressor,X,Y, cv = 5, scoring = 'neg_root_mean_squared_error')
-
+'''
 
 '''
 #apply random search cross validation
