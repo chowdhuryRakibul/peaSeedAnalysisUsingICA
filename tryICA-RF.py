@@ -14,7 +14,6 @@ from matplotlib import pyplot as plt
 #import the two datasets
 dataset = pd.read_csv('pea_seed_dataset.csv')
 
-
 #gather some idea about the reference spectra and FTIR spectra
 dataset.describe()
 dataset.head()
@@ -29,20 +28,6 @@ y = dataset.iloc[:,-5:]
 wavelengths = dataset.columns[1:-5]
 #list of constituents
 constituents = list(dataset.columns[-5:])
-
-'''
-#prepare the new dataset
-df = np.append(x,y.reshape(len(y),1),axis = 1)
-columns_ = np.append(wavelengths,[target]).transpose()
-
-df = pd.DataFrame(data = df,
-                  index = samples,
-                  columns = columns_)
-
-#drop the rows that has missing values in any columns
-df.dropna(inplace = True)
-nSamples = df.shape[0]
-'''
 
 '''
 #remove outliers
@@ -93,7 +78,6 @@ for constituent in constituents:
         X = df.iloc[:,:-1].values
         Y = df.iloc[:,-1].values
         
-        
         #regressor = SVR(kernel = 'rbf')
         regressor = RandomForestRegressor(n_estimators = 500, 
                                           max_depth = 50,
@@ -136,7 +120,7 @@ IC = transformer.fit_transform(x.T)
 M = transformer.mixing_
 
 #set the target variable
-target = constituents[0]
+target = constituents[4] #change the index to fit the model to different constituents
 y = np.array(y[target]) 
 
 #create the dataframe so that we can drop the missing values both in x and y
@@ -156,68 +140,97 @@ df = shuffle(df,random_state = 0)
 X = df.iloc[:,:-1].values
 Y = df.iloc[:,-1].values
 
-
 #split the dataset into training and test set
 from sklearn.model_selection import train_test_split
 X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size = 0.2, random_state = 0)
 
-
+#apply Min-max scaling to y
 from sklearn.preprocessing import MinMaxScaler
-sc = MinMaxScaler()
-y_train = sc.fit_transform(y_train.reshape(-1,1))
+sc_y = MinMaxScaler()
+y_train = sc_y.fit_transform(y_train.reshape(-1,1))
 y_test = y_test.reshape(-1,1)
-y_test = sc.transform(y_test)
+y_test = sc_y.transform(y_test)
 
+#apply standard scaling to the spectra
 from sklearn.preprocessing import StandardScaler
-sc = StandardScaler()
-X_train = sc.fit_transform(X_train)
-X_test = sc.transform(X_test)
+sc_x = StandardScaler()
+X_train = sc_x.fit_transform(X_train)
+X_test = sc_x.transform(X_test)
 
 import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Dropout
+from tensorflow.keras.initializers import GlorotNormal #Xavier initializer
+from tensorflow.keras.wrappers.scikit_learn import KerasRegressor
+from sklearn.model_selection import GridSearchCV
+from tensorflow.keras.metrics import RootMeanSquaredError
 
-def model(neurons = 100, dropOutRate = 0.2):
-    
-    ann = tf.keras.models.Sequential()
-    ann.add(tf.keras.layers.Dense(units=neurons, activation='relu',input_dim = M.shape[1]))
-    ann.add(tf.keras.layers.Dropout(dropOutRate))
-    ann.add(tf.keras.layers.Dense(units=int(neurons/2), activation='relu'))
-    ann.add(tf.keras.layers.Dropout(dropOutRate))
-    ann.add(tf.keras.layers.Dense(units=int(neurons/4), activation='relu'))
-    ann.add(tf.keras.layers.Dropout(dropOutRate))
-    ann.add(tf.keras.layers.Dense(units=1, activation='linear'))
+def createNN(neurons = 200, dropOutRate = 0.3):
+    ann = Sequential()
+    ann.add(Dense(units=neurons, 
+                  activation='relu',
+                  input_dim = M.shape[1], 
+                  kernel_initializer = GlorotNormal() ))
+    ann.add(Dropout(dropOutRate))
+    ann.add(Dense(units=int(neurons/2), activation='relu'))
+    ann.add(Dropout(dropOutRate))
+    ann.add(Dense(units=int(neurons/4), activation='relu'))
+    ann.add(Dropout(dropOutRate))
+    ann.add(Dense(units=1, activation='linear'))
 
-    ann.compile(optimizer = 'adam', loss = 'mse', metrics = ['accuracy'])
+    ann.compile(optimizer = 'adam', loss = 'mse', metrics = [RootMeanSquaredError()])
     return ann
-ann = model()
 
+#ann = createNN()
 
-ann.fit(X_train, y_train, batch_size = 32, epochs = 1000,verbose = 0)
-y_pred = ann.predict(X_test)
+#apply grid search cross validation
+regressor = KerasRegressor(build_fn = createNN)
+paramGrid = {'batch_size':[16,32,64],
+             'nb_epoch':[1500,2000,2500],
+             'neurons':[150,200,250],
+             'dropOutRate':[0.2, 0.3, 0.4]}
+search = GridSearchCV(regressor,paramGrid,cv=10)
+tmp = search.fit(X_train,y_train)
+tmp.best_params_
 
-'''
-#declare the regressor
-regressor = RandomForestRegressor(n_estimators = 500, 
-                                      max_depth = 50,
-                                      min_samples_split = 4,
-                                      min_samples_leaf = 1,
-                                      max_features = 'log2',
-                                      random_state = 0)
-'''
-#regressor = DecisionTreeRegressor(random_state = 0)
-#regressor = LinearRegression()
-#regressor.fit(X_train, y_train)
-
-
-#y_pred = regressor.predict(X_test)
-
-r2 = r2_score(y_test,y_pred)
-print(r2)
+#train ann with optimized parameters with X_train,y_train and test using X_test
+#for n times and average the result
+r2 = []
+for _ in range(5):
+    ann = createNN(neurons = 200,dropOutRate = 0.3)
+    
+    ann.fit(X_train, y_train, batch_size = 16, epochs = 1500,verbose = 0)
+    y_pred = ann.predict(X_test)
+    
+    r2.append(r2_score(y_test,y_pred))
+    
+print(np.mean(r2))
+#inverse transform the result
+y_pred = sc_y.inverse_transform(y_pred)
+y_test = sc_y.inverse_transform(y_test)
 
 #plot predicted vs true value
 plt.scatter(y_test,y_pred)
 plt.xlabel('actual value')
 plt.ylabel('predicted value')
 plt.title('For '+target+ ' with #IC - ' + str(n_IC))
+plt.ylim(0,40)
+plt.xlim(0,40)
+
+#apply cross validation
+regressorCV = KerasRegressor(build_fn = createNN,
+                           epochs = 1500,
+                           batch_size = 16,
+                           verbose = 0)
+
+from sklearn.model_selection import cross_validate
+scores = cross_validate(regressorCV,
+                        X_train,y_train, 
+                        cv = 10,
+                        scoring=['r2','neg_mean_squared_error'],
+                        return_train_score = True,
+                        n_jobs = -1,
+                        verbose = 1)
 
 '''
 #apply cross validation
