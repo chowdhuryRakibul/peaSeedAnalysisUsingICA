@@ -13,10 +13,12 @@ from matplotlib import pyplot as plt
 
 #import the two datasets
 dataset = pd.read_csv('pea_seed_dataset.csv')
+np.random.seed(0)
+rdnSeed = 2
 
 #gather some idea about the reference spectra and FTIR spectra
-dataset.describe()
-dataset.head()
+#dataset.describe()
+#dataset.head()
 
 #make a list of samples
 samples = dataset.iloc[:,0]
@@ -142,7 +144,9 @@ Y = df.iloc[:,-1].values
 
 #split the dataset into training and test set
 from sklearn.model_selection import train_test_split
-X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size = 0.2, random_state = 0)
+X_train, X_test, y_train, y_test = train_test_split(X, Y, 
+                                                    test_size = 1/3, 
+                                                    random_state = rdnSeed)
 
 #apply Min-max scaling to y
 from sklearn.preprocessing import MinMaxScaler
@@ -178,7 +182,7 @@ def createNN(neurons = 200, dropOutRate = 0.3):
     ann.add(Dropout(dropOutRate))
     ann.add(Dense(units=1, activation='linear'))
 
-    ann.compile(optimizer = 'adam', loss = 'mse', metrics = [RootMeanSquaredError()])
+    ann.compile(optimizer = 'adam', loss = 'mse', metrics = ['accuracy',RootMeanSquaredError()])
     return ann
 
 #ann = createNN()
@@ -193,44 +197,53 @@ search = GridSearchCV(regressor,paramGrid,cv=10)
 tmp = search.fit(X_train,y_train)
 tmp.best_params_
 
+
+#run the model for once
+ann = createNN(neurons = 200,dropOutRate = 0.2)
+from tensorflow.keras.callbacks import EarlyStopping
+es = EarlyStopping(monitor='val_root_mean_squared_error',
+                   mode='min',
+                   verbose=1,
+                   patience=200,
+                   restore_best_weights = True)
+
+
+history = ann.fit(X_train, y_train, 
+                  batch_size = 16, 
+                  epochs = 5000,
+                  verbose = 0)
+                  #validation_split=0.2,
+                  #callbacks=[es])
+
+#plot the training loss
+tmp = [i for i in range(len(history.history['loss']))]
+plt.plot(tmp,history.history['loss'])
+#plt.plot(tmp,history.history['val_loss'])
+
+
 #train ann with optimized parameters with X_train,y_train and test using X_test
 #for n times and average the result
 r2 = []
 for _ in range(5):
     ann = createNN(neurons = 200,dropOutRate = 0.3)
     
-    ann.fit(X_train, y_train, batch_size = 16, epochs = 1500,verbose = 0)
+    ann.fit(X_train, y_train, batch_size = 16, epochs = 2000,verbose = 0)
     y_pred = ann.predict(X_test)
     
     r2.append(r2_score(y_test,y_pred))
     
 print(np.mean(r2))
+
 #inverse transform the result
 y_pred = sc_y.inverse_transform(y_pred)
 y_test = sc_y.inverse_transform(y_test)
 
-#plot predicted vs true value
+print(np.sqrt(mean_squared_error(y_test,y_pred)))
+
 plt.scatter(y_test,y_pred)
-plt.xlabel('actual value')
-plt.ylabel('predicted value')
-plt.title('For '+target+ ' with #IC - ' + str(n_IC))
-plt.ylim(0,40)
-plt.xlim(0,40)
-
-#apply cross validation
-regressorCV = KerasRegressor(build_fn = createNN,
-                           epochs = 1500,
-                           batch_size = 16,
-                           verbose = 0)
-
-from sklearn.model_selection import cross_validate
-scores = cross_validate(regressorCV,
-                        X_train,y_train, 
-                        cv = 10,
-                        scoring=['r2','neg_mean_squared_error'],
-                        return_train_score = True,
-                        n_jobs = -1,
-                        verbose = 1)
+plt.title(target)
+plt.xlim(0,85)
+plt.ylim(0,85)
 
 '''
 #apply cross validation
@@ -254,9 +267,16 @@ search.best_score_
 '''
 
 
-#save the predion in .csv
+#save the prediction in .csv
+savetxt('predicted_' + str(target) + '_' + str(rdnSeed) + '.csv', y_pred, delimiter=',')
+savetxt('original_' + str(target)  +'_' + str(rdnSeed) + '.csv', y_test, delimiter=',')
 
-savetxt('predicted_' + str(target)+'.csv', y_pred, delimiter=',')
+json_file = ann.to_json()
+fileName = target + '_' + str(rdnSeed)
+with open(fileName +'.json','w') as file:
+    file.write(json_file)
+ann.save_weights(fileName + '.hdf5')
+
 
 #plot the ICs
 for i in range(n_IC):
