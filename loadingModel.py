@@ -26,8 +26,8 @@ from matplotlib import pyplot as plt
 #import the two datasets
 dataset = pd.read_csv('pea_seed_dataset.csv')
 np.random.seed(0)
-rdnSeed = 2
-constituent = 4
+rdnSeed = 0
+constituent = 0
 
 #gather some idea about the reference spectra and FTIR spectra
 #dataset.describe()
@@ -134,6 +134,7 @@ filePath =  '/home/chowdhr/kaiyangProject/peaSeedAnalysis/output/ICA-ANN/' + str
 model.load_weights(filePath)
 
 y_train_pred = model.predict(X_train)
+y_pred = model.predict(X_test)
 
 #inverse transform the result
 y_train_pred = sc_y.inverse_transform(y_train_pred)
